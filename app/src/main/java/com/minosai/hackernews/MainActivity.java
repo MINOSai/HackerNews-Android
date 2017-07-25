@@ -1,5 +1,8 @@
 package com.minosai.hackernews;
 
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteStatement;
 import android.os.AsyncTask;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -23,7 +26,9 @@ public class MainActivity extends AppCompatActivity {
 
     ListView listView;
     ArrayList<String> titles = new ArrayList<String>();
+    ArrayList<String> content = new ArrayList<String>();
     ArrayAdapter arrayAdapter;
+    SQLiteDatabase articlesDB;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -34,11 +39,34 @@ public class MainActivity extends AppCompatActivity {
         arrayAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_1, titles);
         listView.setAdapter(arrayAdapter);
 
+        articlesDB = this.openOrCreateDatabase("Articles",MODE_PRIVATE,null);
+        articlesDB.execSQL("CREATE TABLE IF NOT EXISTS articles (id INTEGER PRIMARY KEY, articleId INTEGER, title VARCHAR, content VARCHAR)");
+        updateListView();
+
+        refresh();
+    }
+
+    public void refresh(){
         DownloadTask downloadTask = new DownloadTask();
         try {
             downloadTask.execute("https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty");
         }catch (Exception e){
             e.printStackTrace();
+        }
+    }
+
+    public void updateListView(){
+        Cursor cursor = articlesDB.rawQuery("SELECT * FROM articles",null);
+        int contentIndex = cursor.getColumnIndex("content");
+        int titleIndex = cursor.getColumnIndex("title");
+        cursor.moveToFirst();
+        if(cursor.moveToFirst()){
+            titles.clear();
+            content.clear();
+            do{
+                titles.add(cursor.getString(titleIndex));
+                content.add(cursor.getString(contentIndex));
+            }while(cursor.moveToNext());
         }
     }
 
@@ -67,6 +95,9 @@ public class MainActivity extends AppCompatActivity {
                 if(jsonArray.length()<numberOfItems){
                     numberOfItems = jsonArray.length();
                 }
+
+                articlesDB.execSQL("DELETE FROM articles");
+
                 for(int i=0;i<numberOfItems;i++){
                     String articleID = jsonArray.getString(i);
                     url = new URL("https://hacker-news.firebaseio.com/v0/item/"+articleID+".json?print=pretty");
@@ -77,9 +108,11 @@ public class MainActivity extends AppCompatActivity {
                     String articleInfo = "";
                     while(data!=-1){
                         char current = (char) data;
-                        results+=current;
+                        articleInfo+=current;
                         data = reader.read();
                     }
+
+//                    Log.i("content1",articleInfo);
 
                     JSONObject jsonObject = new JSONObject(articleInfo);
                     if(!jsonObject.isNull("title") && !jsonObject.isNull("url")){
@@ -93,11 +126,21 @@ public class MainActivity extends AppCompatActivity {
                         String articleContent = "";
                         while(data!=-1){
                             char current = (char) data;
-                            results+=current;
+                            articleContent+=current;
                             data = reader.read();
                         }
+
+//                        Log.i("content3",articleContent);
+
+                        String sql = "INSERT INTO articles (articleId, title, content) VALUES (? , ? , ?)";
+                        SQLiteStatement statement = articlesDB.compileStatement(sql);
+                        statement.bindString(1,articleID);
+                        statement.bindString(2,articleTitle);
+                        statement.bindString(3,articleContent);
+                        statement.execute();
                     }
                 }
+                Log.i("done","done");
             } catch (MalformedURLException e) {
                 e.printStackTrace();
             } catch (IOException e) {
@@ -107,6 +150,12 @@ public class MainActivity extends AppCompatActivity {
             }
 
             return null;
+        }
+
+        @Override
+        protected void onPostExecute(String s) {
+            super.onPostExecute(s);
+            updateListView();
         }
     }
 }
